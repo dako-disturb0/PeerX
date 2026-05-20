@@ -1,0 +1,6 @@
+{
+  "name": "PeerX",
+  "description": "Secure text-only direct peer-to-peer messaging using WebRTC DataChannel and Cloudflare Workers for signaling",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
