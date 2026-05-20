@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+
+# Ensure buildapp output folder is not ignored
+!/buildapp/
