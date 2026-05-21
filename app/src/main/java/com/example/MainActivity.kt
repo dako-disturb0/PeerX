@@ -7,13 +7,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,10 +33,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -81,7 +88,70 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// Sparkle/Bounce Clickable Modifier helper for lovely tactile feedback
+@Composable
+fun Modifier.bounceClick(onClick: () -> Unit): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "BounceClickScale"
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            interactionSource = interactionSource,
+            indication = LocalIndication.current,
+            onClick = onClick
+        )
+}
+
+@Composable
+fun PulseHalo(
+    color: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseAlpha"
+    )
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 2.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseScale"
+    )
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(24.dp)) {
+            drawCircle(
+                color = color,
+                radius = size.minDimension / 2f * scale,
+                alpha = alpha
+            )
+        }
+        content()
+    }
+}
+
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun MainAppNavigation(viewModel: ChatViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
@@ -104,11 +174,26 @@ fun MainAppNavigation(viewModel: ChatViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentScreen) {
-                AppScreen.REGISTER -> RegisterScreen(viewModel)
-                AppScreen.CONTACTS -> ContactsScreen(viewModel)
-                AppScreen.CHAT -> ChatScreen(viewModel)
-                AppScreen.SETTINGS -> SettingsScreen(viewModel)
+            AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    (slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { width -> width }
+                    ) + fadeIn(animationSpec = tween(220)))
+                        .togetherWith(slideOutHorizontally(
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                            targetOffsetX = { width -> -width }
+                        ) + fadeOut(animationSpec = tween(180)))
+                },
+                label = "ScreenTransition"
+            ) { screen ->
+                when (screen) {
+                    AppScreen.REGISTER -> RegisterScreen(viewModel)
+                    AppScreen.CONTACTS -> ContactsScreen(viewModel)
+                    AppScreen.CHAT -> ChatScreen(viewModel)
+                    AppScreen.SETTINGS -> SettingsScreen(viewModel)
+                }
             }
 
             // Incoming connection modal
@@ -128,52 +213,99 @@ fun MainAppNavigation(viewModel: ChatViewModel) {
 fun RegisterScreen(viewModel: ChatViewModel) {
     var nameInput by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    
+    val pulseTransition = rememberInfiniteTransition(label = "logoPulse")
+    val logoScale by pulseTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "logoScale"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .drawBehind {
+                // Futuristic space glow radial background
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF312E81).copy(alpha = 0.16f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width / 2f, size.height * 0.25f),
+                        radius = size.width * 1.2f
+                    )
+                )
+            }
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding(),
-            shape = RoundedCornerShape(28.dp),
+                .navigationBarsPadding()
+                .shadow(24.dp, shape = RoundedCornerShape(32.dp), clip = false),
+            shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(32.dp),
+                    .padding(horizontal = 28.dp, vertical = 36.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Send,
-                    contentDescription = "Logo",
-                    tint = MaterialTheme.colorScheme.primary,
+                // Pulsing Futuristic iOS 26 dock element logo
+                Box(
                     modifier = Modifier
-                        .size(64.dp)
-                        .padding(bottom = 8.dp)
-                )
+                        .size(96.dp)
+                        .graphicsLayer {
+                            scaleX = logoScale
+                            scaleY = logoScale
+                        }
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(28.dp)
+                        )
+                        .shadow(16.dp, RoundedCornerShape(28.dp), ambientColor = MaterialTheme.colorScheme.primary, spotColor = MaterialTheme.colorScheme.primary)
+                        .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(28.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Logo",
+                        tint = Color.White,
+                        modifier = Modifier.size(46.dp)
+                    )
+                }
 
                 Text(
-                    text = "PeerX",
+                    text = "PeerX P2P",
                     style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    letterSpacing = (-0.5).sp
                 )
 
                 Text(
-                    text = "P2P Messenger aman berbasis WebRTC tanpa server penyimpanan pesan.",
+                    text = "Messenger P2P tanpa server yang aman berbasis WebRTC. Pesan disimpan secara eksklusif dalam database lokal perangkat Anda.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 22.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -181,11 +313,17 @@ fun RegisterScreen(viewModel: ChatViewModel) {
                 OutlinedTextField(
                     value = nameInput,
                     onValueChange = { if (it.length <= 32) nameInput = it },
-                    label = { Text("NAMA ANDA") },
+                    label = { Text("NAMA LOKAL ANDA", fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp) },
                     placeholder = { Text("Masukkan nama panggilan...") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
                         focusManager.clearFocus()
@@ -193,7 +331,7 @@ fun RegisterScreen(viewModel: ChatViewModel) {
                     })
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Button(
                     onClick = {
@@ -202,15 +340,16 @@ fun RegisterScreen(viewModel: ChatViewModel) {
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(26.dp),
+                        .height(56.dp)
+                        .shadow(12.dp, shape = RoundedCornerShape(28.dp), clip = false),
+                    shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Icon(imageVector = Icons.Default.Person, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Buat Akun Lokal", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Buat Akun Sekarang", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
                 }
             }
         }
@@ -237,77 +376,102 @@ fun ContactsScreen(viewModel: ChatViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Custom Top Bar with Status Header
-        TopAppBar(
-            title = {
-                Column {
+        // One UI Reachability Header Area - Generous upper screen negative space
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "PeerX P2P",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.onBackground
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        letterSpacing = (-1).sp
                     )
-                    Text(
-                        text = if (rtcState == RtcState.SIGNAL_ONLINE) "Signal Online" else "Offline / Menghubungkan...",
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (rtcState == RtcState.SIGNAL_ONLINE) Color(0xFF4CAF50) else Color(0xFFF44336)
-                    )
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        val isOnline = rtcState == RtcState.SIGNAL_ONLINE
+                        val beaconColor = if (isOnline) Color(0xFF10B981) else Color(0xFFEF4444)
+                        
+                        PulseHalo(color = beaconColor.copy(alpha = 0.4f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(beaconColor)
+                            )
+                        }
+                        
+                        Text(
+                            text = if (isOnline) "Server Signal Hub Online" else "Offline / Menghubungkan...",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isOnline) Color(0xFF10B981) else Color(0xFFEF4444)
+                        )
+                    }
                 }
-            },
-            actions = {
-                IconButton(onClick = { viewModel.navigateTo(AppScreen.SETTINGS) }) {
+
+                // Gear Settings Action with bounce feedback
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            CircleShape
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
+                        .bounceClick { viewModel.navigateTo(AppScreen.SETTINGS) },
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Pengaturan",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background
-            )
-        )
+            }
+        }
 
-        // Sub bar / process tracker
+        // Sub bar
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (rtcState == RtcState.SIGNAL_ONLINE) Color(0xFF4CAF50) else Color(
-                                    0xFFF44336
-                                )
-                            )
-                    )
-                    Text(
-                        text = if (rtcState == RtcState.SIGNAL_ONLINE) "Server Online" else "Menghubungkan...",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "Enkripsi peer-to-peer terjamin",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 
                 Text(
-                    text = "${contactsList.size} kontak",
-                    fontSize = 11.sp,
+                    text = "${contactsList.size} Kontak",
+                    fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -316,96 +480,115 @@ fun ContactsScreen(viewModel: ChatViewModel) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp, top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // My Own Identity Card
+            // My Identity Card - Glassmorphism style
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(8.dp, shape = RoundedCornerShape(26.dp), clip = false),
+                    shape = RoundedCornerShape(26.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                     ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
+                                    .size(52.dp)
+                                    .background(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                            )
+                                        ),
+                                        shape = CircleShape
+                                    )
+                                    .border(1.5.dp, Color.White.copy(alpha = 0.25f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = viewModel.getMyProfileName().take(1).uppercase(),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 20.sp
                                 )
                             }
                             Column {
                                 Text(
                                     text = viewModel.getMyProfileName(),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "Username Lokal Anda",
-                                    fontSize = 12.sp,
+                                    text = "Identitas Lokal Anda (Terdaftar)",
+                                    fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
+                        // Glass-capsule for Hash Code
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    RoundedCornerShape(12.dp)
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    RoundedCornerShape(18.dp)
                                 )
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
                                 Text(
-                                    text = "KODE HASH P2P",
+                                    text = "KODE AKSES P2P HASH",
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 1.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                 )
                                 Text(
                                     text = viewModel.getMyProfileHash(),
-                                    fontSize = 18.sp,
+                                    fontSize = 21.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 2.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 3.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
 
-                            IconButton(
-                                onClick = {
-                                    clipboardManager.setText(AnnotatedString(viewModel.getMyProfileHash()))
-                                    Toast.makeText(context, "Kode Hash dicopy!", Toast.LENGTH_SHORT).show()
-                                }
+                            // Share action
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
+                                    .bounceClick {
+                                        clipboardManager.setText(AnnotatedString(viewModel.getMyProfileHash()))
+                                        Toast.makeText(context, "Kode Hash dicopy ke clipboard!", Toast.LENGTH_SHORT).show()
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Share,
+                                    imageVector = Icons.Default.Share,
                                     contentDescription = "Copy Hash Code",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -413,14 +596,14 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                 }
             }
 
-            // Connection field (Pair via Hash)
+            // Connection Field - iOS 26 Capsule Dock for pairing
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Sambung dengan Teman Baru",
+                        text = "Hubungkan Sesi Baru",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
@@ -428,7 +611,7 @@ fun ContactsScreen(viewModel: ChatViewModel) {
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedTextField(
@@ -444,86 +627,163 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             ),
-                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f)
+                            ),
+                            shape = RoundedCornerShape(20.dp),
                             modifier = Modifier.weight(1f),
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.Characters,
                                 imeAction = ImeAction.Go
                             ),
-                            keyboardActions = KeyboardActions(onAny = {
+                            keyboardActions = KeyboardActions(onGo = {
+                                focusManager.clearFocus()
+                                viewModel.searchAndConnect(targetHash)
+                            }, onDone = {
                                 focusManager.clearFocus()
                                 viewModel.searchAndConnect(targetHash)
                             })
                         )
 
-                        Button(
-                            onClick = {
-                                focusManager.clearFocus()
-                                viewModel.searchAndConnect(targetHash)
-                            },
-                            modifier = Modifier.height(56.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
+                        // Glowing Send/Search Button with bouncy feedback
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .bounceClick {
+                                    focusManager.clearFocus()
+                                    viewModel.searchAndConnect(targetHash)
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(imageVector = Icons.Default.Search, contentDescription = "Hubungkan")
+                            Icon(
+                                imageVector = Icons.Default.Search, 
+                                contentDescription = "Hubungkan",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
 
-                    // Bottom Row Quick Access
+                    // Bottom Row Double Widgets Grid (basic icons for safety)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        FilledTonalButton(
-                            onClick = { showQrDialog = true },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .bounceClick { showQrDialog = true },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                         ) {
-                            Icon(imageVector = Icons.Default.Menu, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("QR Code Saya", fontSize = 12.sp)
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share, 
+                                    contentDescription = null, 
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "QR Code Saya", 
+                                    fontSize = 13.sp, 
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
 
-                        FilledTonalButton(
-                            onClick = { showScanDialog = true },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .bounceClick { showScanDialog = true },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
                         ) {
-                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Scan QR Teman", fontSize = 12.sp)
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add, 
+                                    contentDescription = null, 
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Ketik QR Manual", 
+                                    fontSize = 13.sp, 
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Connection processing banner or progress text
+            // Connection processing card banner
             if (processText != "Idle") {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    val infiniteTransition = rememberInfiniteTransition(label = "animTrack")
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1200, easing = LinearOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
                         ),
-                        shape = RoundedCornerShape(12.dp)
+                        label = "pulseAlpha"
+                    )
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = pulseAlpha },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.15f))
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.5.dp,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Text(
                                 text = processText,
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
@@ -546,15 +806,27 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 32.dp),
+                            .padding(vertical = 40.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "Belum ada kontak terdaftar.\nMintalah kode hash teman Anda untuk memulai sambungan.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                text = "Belum ada riwayat kontak.\nMintalah kode hash teman Anda untuk memulai obrolan P2P.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 20.sp
+                            )
+                        }
                     }
                 }
             } else {
@@ -576,30 +848,33 @@ fun ContactsScreen(viewModel: ChatViewModel) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    .padding(16.dp)
+                    .shadow(16.dp, shape = RoundedCornerShape(28.dp), clip = false),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     Text(
                         text = "Kode QR P2P Anda",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    // Draw a gorgeous pseudo-QR matrix utilizing custom Canvas! This is clean and matches high-tech look.
+                    // Draw a gorgeous pseudo-QR matrix utilizing custom Canvas!
                     Box(
                         modifier = Modifier
                             .size(200.dp)
-                            .background(Color.White, RoundedCornerShape(12.dp))
-                            .padding(12.dp),
+                            .background(Color.White, RoundedCornerShape(16.dp))
+                            .shadow(4.dp, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         val hash = viewModel.getMyProfileHash()
@@ -609,17 +884,17 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                             val gridSize = 16
                             val cellSize = size.width / gridSize
                             
-                            // Draw 3 corner positioning blocks like native QR
                             val markerPositions = listOf(
                                 Offset(0f, 0f),
                                 Offset((gridSize - 5) * cellSize, 0f),
                                 Offset(0f, (gridSize - 5) * cellSize)
                             )
                             
-                            // Fill background
                             drawRect(color = Color.White)
                             
-                            // Draw the markers
+                            // Color accents for technical styling (royal blue dots)
+                            val accentColor = Color(0xFF312E81)
+                            
                             for (pos in markerPositions) {
                                 drawRect(
                                     color = Color.Black,
@@ -632,22 +907,22 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                                     size = Size(3 * cellSize, 3 * cellSize)
                                 )
                                 drawRect(
-                                    color = Color.Black,
-                                    topLeft = Offset(pos.x + 2 * cellSize, pos.y + 2 * cellSize),
-                                    size = Size(cellSize, cellSize)
+                                    color = accentColor,
+                                    topLeft = Offset(pos.x + 1.5f * cellSize, pos.y + 1.5f * cellSize),
+                                    size = Size(2 * cellSize, 2 * cellSize)
                                 )
                             }
                             
-                            // Let's seed random dark dots across the remaining grid spaces
                             for (x in 0 until gridSize) {
                                 for (y in 0 until gridSize) {
-                                    // Skip marker boundaries
                                     if ((x < 5 && y < 5) || (x >= gridSize - 5 && y < 5) || (x < 5 && y >= gridSize - 5)) {
                                         continue
                                     }
                                     if (random.nextBoolean()) {
+                                        val fillVal = random.nextFloat()
+                                        val dotColor = if (fillVal > 0.85f) accentColor else Color.Black
                                         drawRect(
-                                            color = Color.Black,
+                                            color = dotColor,
                                             topLeft = Offset(x * cellSize, y * cellSize),
                                             size = Size(cellSize, cellSize)
                                         )
@@ -661,39 +936,43 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                         text = viewModel.getMyProfileHash(),
                         style = MaterialTheme.typography.titleLarge,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 4.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Text(
-                        text = "Minta teman Anda menginput kode hash di atas untuk terhubung langsung.",
+                        text = "Bagikan kode hash ini agar teman Anda dapat langsung menghubungkan obrolan P2P.",
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
                     )
 
                     Button(
                         onClick = { showQrDialog = false },
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Tutup")
+                        Text("Tutup Kode", fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
     }
 
-    // Manual Simulate Scan Dialog (since actual camera parsing needs live WebRTC + ZXing stream, let's provide a sleek quick-add helper!)
+    // Manual Simulate Scan Dialog
     if (showScanDialog) {
         var scanInput by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { showScanDialog = false }) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    .padding(16.dp)
+                    .shadow(16.dp, shape = RoundedCornerShape(28.dp), clip = false),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Column(
                     modifier = Modifier
@@ -703,14 +982,14 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = "Input Hash Teman",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
+                        text = "Ketik Hash Manual",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Text(
-                        text = "Kamera tidak tersedia di workspace ini. Sila masukkan kode Hash teman Anda di bawah untuk mensimulasikan pemindaian instan.",
+                        text = "Masukkan kode hash teman Anda untuk mensimulasikan koneksi langsung.",
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -722,15 +1001,20 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                         placeholder = { Text("MISAL: F8K2A9B") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
                             onClick = { showScanDialog = false },
+                            shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Batal")
@@ -742,6 +1026,7 @@ fun ContactsScreen(viewModel: ChatViewModel) {
                                     targetHash = scanInput
                                 }
                             },
+                            shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Gunakan")
@@ -763,16 +1048,18 @@ fun ContactRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onConnect() },
-        shape = RoundedCornerShape(16.dp),
+            .shadow(4.dp, shape = RoundedCornerShape(22.dp), clip = false)
+            .bounceClick { onConnect() },
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+        ),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -783,14 +1070,22 @@ fun ContactRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                        .size(48.dp)
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                )
+                            ),
+                            shape = CircleShape
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = contact.name.take(1).uppercase(),
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 18.sp
                     )
@@ -800,27 +1095,34 @@ fun ContactRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = contact.name,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         if (contact.isBlocked) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "[DIBLOKIR]",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
-                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "DIBLOKIR",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                     Text(
-                        text = contact.hash,
+                        text = "Hash: " + contact.hash,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
                 }
             }
@@ -829,27 +1131,44 @@ fun ContactRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                IconButton(onClick = onConnect) {
+                // Connection Launch
+                IconButton(
+                    onClick = onConnect,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = "Sambung",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
-                IconButton(onClick = onBlock) {
+                // Block
+                IconButton(
+                    onClick = onBlock,
+                    modifier = Modifier.size(38.dp)
+                ) {
                     Icon(
                         imageVector = if (contact.isBlocked) Icons.Default.Check else Icons.Outlined.Lock,
                         contentDescription = if (contact.isBlocked) "Buka Blokir" else "Blokir",
-                        tint = if (contact.isBlocked) Color.Gray else MaterialTheme.colorScheme.error
+                        tint = if (contact.isBlocked) Color.Gray else MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
-                IconButton(onClick = onDelete) {
+                // Delete
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(38.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Hapus Kontak",
-                        tint = MaterialTheme.colorScheme.error
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -873,7 +1192,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var messageInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Scroll automatically when messages size changes
+    // Scroll automatically
     LaunchedEffect(activeMessages.size) {
         if (activeMessages.isNotEmpty()) {
             listState.animateScrollToItem(activeMessages.size - 1)
@@ -885,49 +1204,93 @@ fun ChatScreen(viewModel: ChatViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Chat Header Top Bar
+        // Chat Header Top Bar - iOS Glass panel style
         TopAppBar(
             navigationIcon = {
-                IconButton(onClick = { viewModel.disconnectChatAndGoBack() }) {
-                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Kembali")
+                IconButton(
+                    onClick = { viewModel.disconnectChatAndGoBack() },
+                    modifier = Modifier.bounceClick { viewModel.disconnectChatAndGoBack() }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack, 
+                        contentDescription = "Kembali",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
                 }
             },
             title = {
-                Column {
-                    Text(
-                        text = peerName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "P2P Hash: $peerHash",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = peerName.take(1).uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 15.sp
+                            )
+                        }
+                        
+                        val isConnected = rtcState == RtcState.P2P_CONNECTED
+                        val badgeColor = if (isConnected) Color(0xFF10B981) else Color(0xFFF59E0B)
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(badgeColor)
+                                .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = peerName,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "P2P Hash: $peerHash",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             },
             actions = {
                 IconButton(onClick = { viewModel.clearChatHistory() }) {
-                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Bersihkan Chat")
+                    Icon(
+                        imageVector = Icons.Default.Delete, 
+                        contentDescription = "Bersihkan Chat",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                    )
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
             )
         )
 
-        // WebRTC Connection Info strip
+        // Connection Strip
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -935,49 +1298,58 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    val isConnected = rtcState == RtcState.P2P_CONNECTED
+                    val activeAnimColor = if (isConnected) Color(0xFF10B981) else Color(0xFFFF9800)
+                    
                     Box(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(
-                                when (rtcState) {
-                                    RtcState.P2P_CONNECTED -> Color(0xFF4CAF50)
-                                    RtcState.P2P_CONNECTING, RtcState.PAIRING -> Color(0xFFFF9800)
-                                    else -> Color(0xFFF44336)
-                                }
-                            )
+                            .background(activeAnimColor)
                     )
                     Text(
                         text = when (rtcState) {
-                            RtcState.P2P_CONNECTED -> "P2P Secure"
-                            RtcState.P2P_CONNECTING -> "Menghubungkan..."
-                            RtcState.PAIRING -> "Pairing..."
-                            RtcState.LOOKING_UP -> "Memanggil Peer..."
-                            else -> "Koneksi Terputus"
+                            RtcState.P2P_CONNECTED -> "SALURAN AMAN P2P AKTIF (KRYPTO)"
+                            RtcState.P2P_CONNECTING -> "MENGHUBUNGKAN PEER..."
+                            RtcState.PAIRING -> "PAIRING JALUR..."
+                            RtcState.LOOKING_UP -> "MENCARI PEER ID..."
+                            else -> "KONEKSI TERMINASI/TERPUTUS"
                         },
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (latencyMs != null) "$latencyMs ms" else "-- ms",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = processText,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (latencyMs != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "$latencyMs ms",
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    if (processText.isNotEmpty() && processText != "Idle") {
+                        Text(
+                            text = processText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -1003,31 +1375,64 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
 
-            // Typing Indicator
-            if (isTyping) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 16.dp, bottom = 10.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-                        )
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+            // iOS Bouncing Typing Indicator
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isTyping,
+                enter = fadeIn(animationSpec = tween(150)) + slideInVertically(initialOffsetY = { 20 }),
+                exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(targetOffsetY = { 20 }),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = 10.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    tonalElevation = 2.dp
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "$peerName sedang mengetik",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        val infiniteTransition = rememberInfiniteTransition(label = "typingDot")
+                        val dotOffset by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = -6f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(600, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "dotOffset"
                         )
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 1.dp,
-                            color = MaterialTheme.colorScheme.primary
+
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .graphicsLayer { translationY = dotOffset }
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .graphicsLayer { translationY = dotOffset * 0.7f }
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .graphicsLayer { translationY = dotOffset * 0.4f }
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                        )
+                        
+                        Text(
+                            text = "$peerName mengetik...",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -1035,49 +1440,80 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
 
         // Reply context banner
-        replyTarget?.let { reply ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Membalas ${reply.senderName}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = reply.text,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = replyTarget != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            replyTarget?.let { reply ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(28.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        Column {
+                            Text(
+                                text = "Membalas ${reply.senderName}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = reply.text,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
 
-                IconButton(onClick = { viewModel.cancelReply() }) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Batal", modifier = Modifier.size(18.dp))
+                    IconButton(
+                        onClick = { viewModel.cancelReply() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close, 
+                            contentDescription = "Batal", 
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
 
-        // Input bottom app bar
+        // iOS 26 Dynamic Floating Dock Input Capsule
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding(),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .navigationBarsPadding()
+                .shadow(12.dp, shape = RoundedCornerShape(32.dp), clip = false),
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            tonalElevation = 6.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -1087,41 +1523,56 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         messageInput = it
                         viewModel.broadcastTypingState(it.isNotEmpty())
                     },
-                    placeholder = { Text("Ketik pesan P2P...") },
+                    placeholder = { Text("Ketik pesan terenkripsi...") },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
-                    maxLines = 4,
+                    shape = RoundedCornerShape(26.dp),
+                    maxLines = 5,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     enabled = rtcState == RtcState.P2P_CONNECTED
                 )
 
-                IconButton(
-                    onClick = {
-                        if (messageInput.trim().isNotEmpty()) {
-                            viewModel.sendTextMessage(messageInput)
-                            messageInput = ""
-                        }
-                    },
-                    enabled = rtcState == RtcState.P2P_CONNECTED && messageInput.trim().isNotEmpty(),
+                val isSendEnabled = rtcState == RtcState.P2P_CONNECTED && messageInput.trim().isNotEmpty()
+                Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
                         .background(
-                            if (rtcState == RtcState.P2P_CONNECTED && messageInput.trim().isNotEmpty()) {
-                                MaterialTheme.colorScheme.primary
+                            if (isSendEnabled) {
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                                    )
+                                )
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                )
                             }
                         )
+                        .bounceClick {
+                            if (isSendEnabled && messageInput.trim().isNotEmpty()) {
+                                viewModel.sendTextMessage(messageInput)
+                                messageInput = ""
+                            }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = "Kirim",
-                        tint = if (rtcState == RtcState.P2P_CONNECTED && messageInput.trim().isNotEmpty()) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        tint = if (isSendEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1145,13 +1596,16 @@ fun MessageBubble(
         ) {
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.04f))
             ) {
                 Text(
                     text = message.content,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     textAlign = TextAlign.Center
@@ -1161,101 +1615,147 @@ fun MessageBubble(
         return
     }
 
-    val bubbleColor = if (message.fromMe) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-
-    val textColor = if (message.fromMe) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
     val alignment = if (message.fromMe) Alignment.CenterEnd else Alignment.CenterStart
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        contentAlignment = alignment
+    var visibleState by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        visibleState = true
+    }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visibleState,
+        enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
+            animationSpec = spring(stiffness = Spring.StiffnessLow),
+            initialOffsetY = { 10 }
+        )
     ) {
-        Column(
-            horizontalAlignment = if (message.fromMe) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 280.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            contentAlignment = alignment
         ) {
-            // Context header for sender (only on incoming message)
-            if (!message.fromMe) {
-                Text(
-                    text = message.fromName,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-                )
-            }
-
-            Surface(
-                color = bubbleColor,
-                shape = if (message.fromMe) {
-                    RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
-                } else {
-                    RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-                },
-                modifier = Modifier.combinedClickable(
-                    onLongClick = onLongClick,
-                    onClick = {}
-                )
+            Column(
+                horizontalAlignment = if (message.fromMe) Alignment.End else Alignment.Start,
+                modifier = Modifier.widthIn(max = 290.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Replied references box inside bubble
-                    if (message.replyToId != null) {
-                        Surface(
-                            color = if (message.fromMe) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                            } else {
-                                MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.3f)
-                            },
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(8.dp)
-                            ) {
-                                Text(
-                                    text = message.replyToName ?: "Peer",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (message.fromMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = message.replyToContent ?: "",
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = if (message.fromMe) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
+                if (!message.fromMe) {
                     Text(
-                        text = message.content,
-                        fontSize = 15.sp,
-                        color = textColor
+                        text = message.fromName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 6.dp, bottom = 2.dp)
                     )
                 }
-            }
 
-            Text(
-                text = viewModel.formatTime(message.timestamp),
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp)
-            )
+                Surface(
+                    color = Color.Transparent,
+                    shape = if (message.fromMe) {
+                        RoundedCornerShape(22.dp, 22.dp, 4.dp, 22.dp)
+                    } else {
+                        RoundedCornerShape(22.dp, 22.dp, 22.dp, 4.dp)
+                    },
+                    modifier = Modifier
+                        .shadow(
+                            2.dp, 
+                            shape = if (message.fromMe) {
+                                RoundedCornerShape(22.dp, 22.dp, 4.dp, 22.dp)
+                            } else {
+                                RoundedCornerShape(22.dp, 22.dp, 22.dp, 4.dp)
+                            },
+                            clip = false
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (message.fromMe) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f),
+                            shape = if (message.fromMe) {
+                                RoundedCornerShape(22.dp, 22.dp, 4.dp, 22.dp)
+                            } else {
+                                RoundedCornerShape(22.dp, 22.dp, 22.dp, 4.dp)
+                            }
+                        )
+                        .drawBehind {
+                            if (message.fromMe) {
+                                drawRect(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF6366F1), 
+                                            Color(0xFF4F46E5)  
+                                        )
+                                    )
+                                )
+                            } else {
+                                drawRect(color = Color(0x99222235))
+                            }
+                        }
+                        .combinedClickable(
+                            onLongClick = onLongClick,
+                            onClick = {}
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (message.replyToId != null) {
+                            Surface(
+                                color = if (message.fromMe) {
+                                    Color.White.copy(alpha = 0.15f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(2.dp)
+                                            .fillMaxHeight()
+                                            .background(if (message.fromMe) Color.White else MaterialTheme.colorScheme.primary)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = message.replyToName ?: "Peer",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = if (message.fromMe) Color.White else MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = message.replyToContent ?: "",
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = if (message.fromMe) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = message.content,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (message.fromMe) Color.White else MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = viewModel.formatTime(message.timestamp),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(top = 4.dp, start = 6.dp, end = 6.dp)
+                )
+            }
         }
     }
 }
@@ -1275,187 +1775,286 @@ fun SettingsScreen(viewModel: ChatViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        TopAppBar(
-            navigationIcon = {
-                IconButton(onClick = { viewModel.navigateTo(AppScreen.CONTACTS) }) {
-                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Kembali")
-                }
-            },
-            title = { Text("Pengaturan", fontWeight = FontWeight.Bold) },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background
-            )
-        )
-
+        // One UI Reachability Header for Settings
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp),
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                IconButton(
+                    onClick = { viewModel.navigateTo(AppScreen.CONTACTS) },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack, 
+                        contentDescription = "Kembali",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                
+                Text(
+                    text = "Pengaturan",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    letterSpacing = (-1).sp
+                )
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Profil Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            // Profile Card (iOS Glass list style)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                    ),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                 ) {
-                    Text(
-                        text = "Profil Anda",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedTextField(
-                        value = editUsername,
-                        onValueChange = { if (it.length <= 32) editUsername = it },
-                        label = { Text("USERNAME") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Button(
-                        onClick = { viewModel.saveSettingsUsername(editUsername) },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.align(Alignment.Start)
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Check, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Simpan Username")
-                    }
-                }
-            }
-
-            // Connection Hash Code Settings Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "Kode Hash P2P",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                RoundedCornerShape(12.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
                             )
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = viewModel.getMyProfileHash(),
-                            fontSize = 20.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.regeneratePrivateHash() },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.align(Alignment.Start)
-                    ) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Hubungkan Ulang & Generate Baru")
-                    }
-                }
-            }
-
-            // Theme Settings Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "Tampilan Tema",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        FilledTonalButton(
-                            onClick = { viewModel.changeTheme("dark") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = if (currentTheme == "dark") {
-                                ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            } else ButtonDefaults.filledTonalButtonColors()
-                        ) {
-                            Text("Gelap")
+                            Text(
+                                text = "Profil Pengguna",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
 
-                        FilledTonalButton(
-                            onClick = { viewModel.changeTheme("light") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = if (currentTheme == "light") {
-                                ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            } else ButtonDefaults.filledTonalButtonColors()
+                        OutlinedTextField(
+                            value = editUsername,
+                            onValueChange = { if (it.length <= 32) editUsername = it },
+                            label = { Text("USERNAME LOKAL") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        Button(
+                            onClick = { viewModel.saveSettingsUsername(editUsername) },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Terang")
+                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Simpan Nama Baru", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
 
-            // Account settings Delete
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            // Connection Hash Card (iOS style)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                    ),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                 ) {
-                    Text(
-                        text = "Keluar & Reset Akun",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
-
-                    Button(
-                        onClick = { viewModel.resetWholeAccount() },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.ExitToApp, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Reset Seluruh Akun Lokal")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Kode Akses P2P Hash",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    RoundedCornerShape(16.dp)
+                                )
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = viewModel.getMyProfileHash(),
+                                fontSize = 22.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 2.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.regeneratePrivateHash() },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Buat Urutan Akses Baru", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Theme Setting Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                    ),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Tampilan & Tema",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = { viewModel.changeTheme("dark") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = if (currentTheme == "dark") {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = Color.White
+                                    )
+                                } else ButtonDefaults.filledTonalButtonColors()
+                            ) {
+                                Text("Mode Gelap", fontWeight = FontWeight.Bold)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { viewModel.changeTheme("light") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = if (currentTheme == "light") {
+                                    ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = Color.White
+                                    )
+                                } else ButtonDefaults.filledTonalButtonColors()
+                            ) {
+                                Text("Mode Terang", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Dangerous Zone Account Deletion (Red label list)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.25f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ExitToApp,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Zona Bahaya & Reset",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.resetWholeAccount() },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text("Reset & Hapus Seluruh Database Lokal", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
@@ -1474,31 +2073,40 @@ fun IncomingCallDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(16.dp)
+                .shadow(24.dp, shape = RoundedCornerShape(28.dp), clip = false),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(48.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
 
                 Text(
-                    text = "Permintaan Koneksi",
+                    text = "Permintaan Koneksi P2P",
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Column(
@@ -1513,15 +2121,16 @@ fun IncomingCallDialog(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = peerHash,
+                        text = "ID Hash: $peerHash",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
                 Text(
-                    text = "Ingin terhubung aman dengan Anda menggunakan WebRTC.",
+                    text = "Ingin terhubung dengan Anda melalui saluran aman WebRTC.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -1529,27 +2138,29 @@ fun IncomingCallDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedButton(
                         onClick = onReject,
                         modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
                         ),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
                     ) {
-                        Text("Tolak")
+                        Text("Tolak", fontWeight = FontWeight.Bold)
                     }
 
                     Button(
                         onClick = onAccept,
                         modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
                         )
                     ) {
-                        Text("Terima")
+                        Text("Terima", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }

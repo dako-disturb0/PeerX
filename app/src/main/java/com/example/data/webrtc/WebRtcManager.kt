@@ -95,8 +95,8 @@ class WebRtcManager(
                 .setOptions(options)
                 .createPeerConnectionFactory()
             Log.d(TAG, "WebRTC Initialized successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "WebRTC initialization failed", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "WebRTC initialization failed", t)
         }
     }
 
